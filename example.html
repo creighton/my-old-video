@@ -111,6 +111,7 @@
     }
 
     function middlestuff(hashtag) {
+        if (reportstate === 'COMPLETED' || completed) return;
         var qobj = {"id":objecturi + hashtag};
         var duration = "PT"+Math.floor(currenttime) + "S";
         var context = {"contextActivities":{"parent" : [{"id" : objecturi}]}};
@@ -122,7 +123,7 @@
     }
 
     function endstuff() {
-        if (reportstate === 'COMPLETED') return;
+        if (reportstate === 'COMPLETED' || completed) return;
         reportstate = 'SUSPENDED';
         completed = (firstqhit && midwayhit && thirdqhit) && Math.round(currenttime + Math.round(myplayer.getDuration()*0.05)) > Math.floor(myplayer.getDuration());
         if (completed) reportstate = 'COMPLETED';
@@ -142,6 +143,7 @@
                 ADL.XAPIWrapper.sendStatement(stmt, function(){});
             }
             else {
+                console.log("would send this statement if 'is_tracking' was true.");
                 console.log(stmt);
             }
         }
