@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<!-- support scripts -->
+    <script type="text/javascript" src="../js/2.5.3-crypto-sha1.js"></script>
+    <script type="text/javascript" src="../js/base64.js"></script>
+
+    <!-- ADL scripts -->
+    <script type="text/javascript" src="../js/verbs.js"></script>
+    <script type="text/javascript" src="../js/xapiwrapper.js"></script>
+<!--
+    <script type="text/javascript">
+        ADL.XAPIWrapper.changeConfig({"endpoint":"https://lrs.adlnet.gov/xapi/", "user":"tom", "password":"1234"});
+    </script>
+-->
+    <script type="text/javascript">
+        ADL.XAPIWrapper.changeConfig({"endpoint":"http://localhost:8000/xapi/", "user":"tom", "password":"1234"});
+    </script>
+
+    <script type="text/javascript" src="../vendor/projekktor/jquery-1.7.2.min.js"></script>
+    
+    <script type="text/javascript" src="../vendor/projekktor/projekktor.min.js"></script>
+    <link rel="stylesheet" href="../vendor/projekktor/theme/maccaco/projekktor.style.css" type="text/css" media="screen" />
+</head>
+<body>
+	<video id="player_a" class="projekktor" poster="../media/adllogo.png" title="adl video player" width="640" height="360" controls>
+        <!-- works and tracks using code below -->
+        <source src="http://localhost/test/media/intro.mp4" type="video/mp4" />
+        <!-- works... but tracking is goofy -->
+        <!-- <source src="http://www.youtube.com/watch?v=YkFbKh7d5EI" type="video/youtube" /> -->
+    </video>
+
+
+    <script type="text/javascript">
+    var is_tracking = false; // true sends xapi statements, false writes to console
+    var currentstate = 'STOPPED';
+    var currenttime = 0;
+    var reportstate = 'LAUNCHED';
+    var firstqhit, midwayhit, thirdqhit, completed;
+    var myplayer = null;
+    var objecturi = location.origin + location.pathname + "#unknown-activity";
+    var actor = ADL.XAPIWrapper.lrs.actor ? ADL.XAPIWrapper.lrs.actor : '{"account":{"name":"unknown", "homePage":' + location.origin + '}}';
+
+    var timelistener = function(time) {
+        currenttime = time;
+        if (currentstate == "PLAYING" && myplayer.getTimeLeft() == 0){
+            myplayer.setStop();
+        }
+    }
+
+    var oneqlistener = function() {
+        console.log('1st quarter: ' + currenttime);
+        if (firstqhit) return;
+        firstqhit = true;
+        reportstate = 'FIRSTQ';
+        middlestuff("#firstquartile");
+    }
+
+    var midlistener = function() {
+        console.log('1/2 way: ' + currenttime);
+        if (midwayhit) return;
+        midwayhit = firstqhit;
+        reportstate = 'MIDWAY';
+        middlestuff("#midway");
+    }
+
+    var thirdqlistener = function() {
+        console.log('3rd quarter: ' + currenttime);
+        if (thirdqhit) return;
+        thirdqhit = midwayhit && firstqhit;
+        reportstate = 'THIRDQ';
+        middlestuff("#thirdquartile");
+    }
+
+    var statelistener = function(state) {
+        currentstate = state;
+        switch(state) {
+            case 'STARTING':
+                if (reportstate !== 'LAUNCHED') return;
+                console.log(state);
+                var oneqobj = {"id":objecturi};
+                report({"actor":actor, 
+                        "verb":ADL.verbs.launched, 
+                        "object":oneqobj});
+                break;
+            case 'PLAYING':
+                console.log(state + "-" + reportstate);
+                if (reportstate === 'SUSPENDED') {
+                    var verb = ADL.verbs.resumed;
+                    var oneqobj = {"id":objecturi};
+                    var duration = "PT"+Math.floor(currenttime) + "S";
+                    report({"actor":actor, 
+                            "verb":verb, 
+                            "object":oneqobj, 
+                            "result":{"duration":duration}});
+                }
+                reportstate = state;
+                break;
+            case 'PAUSED':
+            case 'STOPPED':
+            case 'COMPLETED':
+                console.log(state + ": " + Math.round(myplayer.getDuration() - currenttime) + " seconds left");
+                endstuff();
+                break;
+            case 'ERROR':
+            case 'DESTROYING':
+                endstuff();
+                break;
+            break;
+        }
+    }
+
+    function middlestuff(hashtag) {
+        var qobj = {"id":objecturi + hashtag};
+        var duration = "PT"+Math.floor(currenttime) + "S";
+        var context = {"contextActivities":{"parent" : [{"id" : objecturi}]}};
+        report({"actor":actor, 
+                "verb":ADL.verbs.progressed, 
+                "object":qobj, 
+                "result":{"duration":duration},
+                "context":context});
+    }
+
+    function endstuff() {
+        if (reportstate === 'COMPLETED') return;
+        reportstate = 'SUSPENDED';
+        completed = (firstqhit && midwayhit && thirdqhit) && Math.round(currenttime + Math.round(myplayer.getDuration()*0.05)) > Math.floor(myplayer.getDuration());
+        if (completed) reportstate = 'COMPLETED';
+        var verb = completed?ADL.verbs.completed:ADL.verbs.suspended;
+        var oneqobj = {"id":objecturi};
+        var duration = "PT"+Math.floor(currenttime) + "S";
+        report({"actor":actor, 
+                "verb":verb, 
+                "object":oneqobj, 
+                "result":{"duration":duration}});
+    }
+
+    function report (stmt) {
+        if (stmt) {
+            stmt['timestamp'] = (new Date()).toISOString();
+            if (is_tracking) {
+                ADL.XAPIWrapper.sendStatement(stmt, function(){});
+            }
+            else {
+                console.log(stmt);
+            }
+        }
+
+    }
+
+    $(document).ready(function() {
+        projekktor('#player_a', {
+        volume: 0.8,
+        playerFlashMP4: 'http://www.yourdomain.com/test/projekktor/jarisplayer.swf',
+        playerFlashMP3: 'http://www.yourdomain.com/test/projekktor/jarisplayer.swf'
+        }, function(player) {
+            myplayer = player;
+            console.log(player);
+            objecturi = myplayer.getSource();
+            player.addListener('time', timelistener);
+            player.addListener('firstquartile', oneqlistener);
+            player.addListener('midpoint', midlistener);
+            player.addListener('thirdquartile', thirdqlistener);
+            player.addListener('state', statelistener);
+        });
+    });
+    </script> 
+	
+</body>
+</html>
